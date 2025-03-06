@@ -23,9 +23,23 @@ data_stats = {
 def get_br_url(player_name):
     parts = player_name.split()
     first, last = parts[0], parts[-1]
-    url = f"https://www.basketball-reference.com/players/{last[0].lower()}/{last[:5].lower()}{first[:2].lower()}01.html"
-    print(f"Generated URL for {player_name}: {url}")  # Debugging line
-    return url
+    
+    # Handle suffixes like "Jr.", "Sr.", "III", etc.
+    if last.lower() in ["jr", "sr", "ii", "iii", "iv", "v"]:
+        last = parts[-2]
+    
+    base_url = f"https://www.basketball-reference.com/players/{last[0].lower()}/{last[:5].lower()}{first[:2].lower()}"
+    
+    # Try different suffixes (01, 02, 03, ...)
+    for i in range(1, 10):
+        url = f"{base_url}{i:02d}.html"
+        req = requests.get(url)
+        if req.status_code == 200:
+            print(f"Generated URL for {player_name}: {url}")  # Debugging line
+            return url
+    
+    print(f"Could not generate a valid URL for {player_name}")
+    return None
 
 # Function to scrape a table
 def scrape_table(soup, table_id, season):
@@ -34,13 +48,22 @@ def scrape_table(soup, table_id, season):
         row = table.find("tr", {"id": f"{table_id}.{season}"})
         if row:
             stats = {}
+            # Scrape season
+            season_cell = row.find("th", {"data-stat": "year_id"})
+            if season_cell:
+                stats["season"] = season_cell.text
+                print(f"Scraped season: {season_cell.text}")  # Debugging line
+
             for data_stat in data_stats[table_id]:
                 cell = row.find("td", {"data-stat": data_stat})
                 if cell:
                     stats[data_stat] = cell.text
+                    print(f"Scraped {data_stat}: {cell.text}")  # Debugging line
                 else:
                     stats[data_stat] = None
+                    print(f"Missing {data_stat}")  # Debugging line
             return stats
+    print(f"Table {table_id} not found for season {season}")  # Debugging line
     return None
 
 # Function to scrape per game stats
@@ -83,6 +106,17 @@ def scrape_advanced_stats(player_name, season):
     
     return advanced_stats
 
+# Function to scrape combined stats (per game and advanced)
+def scrape_combined_stats(player_name, season):
+    per_game_stats = scrape_per_game_stats(player_name, season)
+    time.sleep(5)  # Add a 5-second delay between requests to avoid rate limits
+    advanced_stats = scrape_advanced_stats(player_name, season)
+    
+    if per_game_stats or advanced_stats:
+        combined_stats = {**per_game_stats, **advanced_stats}
+        return combined_stats
+    return None
+
 # Function to scrape stats for all active players
 def scrape_all_players_stats(season):
     all_players = NBAAPIPlayers.get_active_players()
@@ -91,24 +125,10 @@ def scrape_all_players_stats(season):
         player_name = player['full_name']
         print(f"Scraping stats for {player_name}")
         
-        # Scrape per game stats
-        per_game_stats = scrape_per_game_stats(player_name, season)
-        time.sleep(5)  # Add a 5-second delay between requests to avoid rate limits
+        combined_stats = scrape_combined_stats(player_name, season)
         
-        # Scrape advanced stats
-        advanced_stats = scrape_advanced_stats(player_name, season)
-        
-        if per_game_stats or advanced_stats:
-            all_stats[player_name] = {
-                "per_game_stats": per_game_stats,
-                "advanced_stats": advanced_stats
-            }
-            print(f"\nPer Game Stats for {player_name}:")
-            for stat, value in per_game_stats.items():
-                print(f"  {stat}: {value}")
-            print(f"\nAdvanced Stats for {player_name}:")
-            for stat, value in advanced_stats.items():
-                print(f"  {stat}: {value}")
+        if combined_stats:
+            all_stats[player_name] = combined_stats
         else:
             print(f"No stats found for {player_name} in season {season}")
         time.sleep(5)  # Add a 5-second delay between requests to avoid rate limits
@@ -123,10 +143,7 @@ if __name__ == "__main__":
     for i, (player_name, stats) in enumerate(all_players_stats.items()):
         if i >= 5:
             break
-        print(f"\nPer Game Stats for {player_name}:")
-        for stat, value in stats["per_game_stats"].items():
-            print(f"  {stat}: {value}")
-        print(f"\nAdvanced Stats for {player_name}:")
-        for stat, value in stats["advanced_stats"].items():
+        print(f"\nCombined Stats for {player_name}:")
+        for stat, value in stats.items():
             print(f"  {stat}: {value}")
 
