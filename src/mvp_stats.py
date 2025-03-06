@@ -1,7 +1,8 @@
 import os
 import sqlite3
-from nba_api.stats.endpoints import playercareerstats
+from scraper import scrape_combined_stats  # Import the scraper function
 from nba_api.stats.static import players
+import time
 
 # Define a fixed database path
 DB_PATH = "/home/manemritvik/projects/repos/NBA-Award-Predictor/data/nba_stats.db"
@@ -29,6 +30,20 @@ def create_db():
         fg_pct REAL,
         three_pt_pct REAL,
         ft_pct REAL,
+        per REAL,
+        ws REAL,
+        ws_per_48 REAL,
+        bpm REAL,
+        obpm REAL,
+        dbpm REAL,
+        vorp REAL,
+        usg_pct REAL,
+        ast_pct REAL,
+        trb_pct REAL,
+        stl_pct REAL,
+        blk_pct REAL,
+        tov_pct REAL,
+        efg_pct REAL,
         PRIMARY KEY (season, player_id)
     )
     """)
@@ -36,86 +51,82 @@ def create_db():
     conn.commit()
     conn.close()
 
-def get_player_stats(player_name, season):
+def get_player_stats(player_id, season):
     """Retrieve stats for a specific player and season."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("""
     SELECT * FROM mvp_stats
-    WHERE player_name = ? AND season = ?
-    """, (player_name, season))
+    WHERE player_id = ? AND season = ?
+    """, (player_id, season))
 
     stats = cursor.fetchone()
     conn.close()
     return stats
 
-def insert_player_stats(player_name, season):
-    """Fetch and insert player stats from NBA API into the database."""
-    player_dict = players.find_players_by_full_name(player_name)
-    if not player_dict:
-        print(f"Player {player_name} not found.")
+def insert_player_stats(player_id, player_name, season):
+    """Fetch and insert player stats from Basketball Reference into the database."""
+    combined_stats = scrape_combined_stats(player_name, season)
+    
+    if not combined_stats:
+        print(f"Could not fetch all stats for {player_name} in the {season} season.")
         return
 
-    player_id = player_dict[0]['id']
-    career = playercareerstats.PlayerCareerStats(player_id=player_id)
-    stats = career.get_data_frames()[0]
-
-    season_stats = stats[stats['SEASON_ID'] == season]
-    if season_stats.empty:
-        print(f"No stats found for {player_name} in the {season} season.")
-        return
-
-    season_stats = season_stats.iloc[0]
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("""
-    INSERT OR REPLACE INTO mvp_stats (season, player_id, player_name, team_abbreviation, games_played, minutes, points, rebounds, assists, steals, blocks, fg_pct, three_pt_pct, ft_pct)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO mvp_stats (season, player_id, player_name, team_abbreviation, games_played, minutes, points, rebounds, assists, steals, blocks, fg_pct, three_pt_pct, ft_pct, per, ws, ws_per_48, bpm, obpm, dbpm, vorp, usg_pct, ast_pct, trb_pct, stl_pct, blk_pct, tov_pct, efg_pct)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         season,
         player_id,
         player_name,
-        season_stats['TEAM_ABBREVIATION'],
-        int(season_stats['GP']),
-        float(season_stats['MIN']),
-        float(season_stats['PTS']),
-        float(season_stats['REB']),
-        float(season_stats['AST']),
-        float(season_stats['STL']),
-        float(season_stats['BLK']),
-        float(season_stats['FG_PCT']),
-        float(season_stats['FG3_PCT']),
-        float(season_stats['FT_PCT'])
+        combined_stats.get('team_abbreviation'),
+        combined_stats.get('g'),
+        combined_stats.get('mp'),
+        combined_stats.get('pts_per_g'),
+        combined_stats.get('trb_per_g'),
+        combined_stats.get('ast_per_g'),
+        combined_stats.get('stl_per_g'),
+        combined_stats.get('blk_per_g'),
+        combined_stats.get('fg_pct'),
+        combined_stats.get('three_pt_pct'),
+        combined_stats.get('ft_pct'),
+        combined_stats.get('per'),
+        combined_stats.get('ws'),
+        combined_stats.get('ws_per_48'),
+        combined_stats.get('bpm'),
+        combined_stats.get('obpm'),
+        combined_stats.get('dbpm'),
+        combined_stats.get('vorp'),
+        combined_stats.get('usg_pct'),
+        combined_stats.get('ast_pct'),
+        combined_stats.get('trb_pct'),
+        combined_stats.get('stl_pct'),
+        combined_stats.get('blk_pct'),
+        combined_stats.get('tov_pct'),
+        combined_stats.get('efg_pct')
     ))
 
     conn.commit()
     conn.close()
 
+def insert_all_players_stats(season):
+    """Fetch and insert stats for all active players into the database."""
+    all_players = players.get_active_players()
+    for player in all_players:
+        player_id = player['id']
+        player_name = player['full_name']
+        print(f"Scraping stats for {player_name}")
+        insert_player_stats(player_id, player_name, season)
+        time.sleep(3)  # Add a 3-second delay between requests to avoid rate limits
+
 # Example usage
 if __name__ == "__main__":
     create_db()  # Ensure the database and table are created
 
-    # Insert LeBron's stats for the current season
-    current_season = "2024-25"  # Update this to the current season format used by NBA API
-    insert_player_stats("LeBron James", current_season)
-
-    # Retrieve and print LeBron's stats for the current season
-    lebron_stats = get_player_stats("LeBron James", current_season)
-    
-    if lebron_stats:
-        print(f"LeBron's stats for the {current_season} season:")
-        print(f"Team: {lebron_stats[3]}")
-        print(f"Games Played: {lebron_stats[4]}")
-        print(f"Minutes: {lebron_stats[5]}")
-        print(f"Points: {lebron_stats[6]}")
-        print(f"Rebounds: {lebron_stats[7]}")
-        print(f"Assists: {lebron_stats[8]}")
-        print(f"Steals: {lebron_stats[9]}")
-        print(f"Blocks: {lebron_stats[10]}")
-        print(f"Field Goal Percentage: {lebron_stats[11]}")
-        print(f"Three-Point Percentage: {lebron_stats[12]}")
-        print(f"Free Throw Percentage: {lebron_stats[13]}")
-    else:
-        print("No stats found for LeBron in the current season.")
+    # Insert stats for all active players for the current season
+    current_season = "2025"  # Update this to the current season format used by Basketball Reference
+    insert_all_players_stats(current_season)
