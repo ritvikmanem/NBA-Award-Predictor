@@ -24,19 +24,36 @@ def get_br_url(player_name):
     parts = player_name.split()
     first, last = parts[0], parts[-1]
     
-    # Handle suffixes like "Jr.", "Sr.", "III", etc.
-    if last.lower() in ["jr", "sr", "ii", "iii", "iv", "v"]:
+    # Handle suffixes like "Jr.", "Sr.", "II", "III", etc.
+    suffixes = ["jr", "sr", "ii", "iii", "iv", "v"]
+    if last.lower() in suffixes:
         last = parts[-2]
-    
-    base_url = f"https://www.basketball-reference.com/players/{last[0].lower()}/{last[:5].lower()}{first[:2].lower()}"
-    
-    # Try different suffixes (01, 02, 03, ...)
-    for i in range(1, 10):
-        url = f"{base_url}{i:02d}.html"
-        req = requests.get(url)
-        if req.status_code == 200:
-            print(f"Generated URL for {player_name}: {url}")  # Debugging line
-            return url
+        suffix = parts[-1].lower()
+        if suffix == "jr":
+            suffix_number = 2
+        else:
+            suffix_number = int(suffix[-1])
+        base_url = f"https://www.basketball-reference.com/players/{last[0].lower()}/{last[:5].lower()}{first[:2].lower()}"
+        for i in range(1, 10):
+            url = f"{base_url}{suffix_number:02d}.html"
+            req = requests.get(url)
+            if req.status_code == 200:
+                soup = BeautifulSoup(req.content, "html.parser")
+                player_name_on_page = soup.find("div", {"id": "info"}).find("h1").text.strip()
+                if player_name.lower() == player_name_on_page.lower():
+                    print(f"Generated URL for {player_name}: {url}")  # Debugging line
+                    return url
+    else:
+        base_url = f"https://www.basketball-reference.com/players/{last[0].lower()}/{last[:5].lower()}{first[:2].lower()}"
+        for i in range(1, 10):
+            url = f"{base_url}{i:02d}.html"
+            req = requests.get(url)
+            if req.status_code == 200:
+                soup = BeautifulSoup(req.content, "html.parser")
+                player_name_on_page = soup.find("div", {"id": "info"}).find("h1").text.strip()
+                if player_name.lower() == player_name_on_page.lower():
+                    print(f"Generated URL for {player_name}: {url}")  # Debugging line
+                    return url
     
     print(f"Could not generate a valid URL for {player_name}")
     return None
@@ -69,6 +86,10 @@ def scrape_table(soup, table_id, season):
 # Function to scrape per game stats
 def scrape_per_game_stats(player_name, season):
     url = get_br_url(player_name)
+    if not url:
+        print(f"Skipping {player_name} due to invalid URL.")
+        return None
+    
     while True:
         req = requests.get(url)
         print(f"PER_GAME: Request status code for {player_name}: {req.status_code}")  # Print status code
@@ -89,6 +110,10 @@ def scrape_per_game_stats(player_name, season):
 # Function to scrape advanced stats
 def scrape_advanced_stats(player_name, season):
     url = get_br_url(player_name)
+    if not url:
+        print(f"Skipping {player_name} due to invalid URL.")
+        return None
+    
     while True:
         req = requests.get(url)
         print(f"ADVANCED: Request status code for {player_name}: {req.status_code}")  # Print status code
@@ -146,4 +171,3 @@ if __name__ == "__main__":
         print(f"\nCombined Stats for {player_name}:")
         for stat, value in stats.items():
             print(f"  {stat}: {value}")
-

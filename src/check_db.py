@@ -34,4 +34,4 @@ def delete_all_data():
 if __name__ == "__main__":
     # Uncomment the function you want to use
     print_all_data()
-    #delete_all_data()
+    delete_all_data()
